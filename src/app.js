@@ -10,4 +10,7 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+const rbacRoutes = require("./routes/rbac.routes");
+app.use("/rbac", rbacRoutes);
+
 module.exports = { app };
