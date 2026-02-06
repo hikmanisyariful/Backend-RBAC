@@ -1,5 +1,7 @@
 const express = require("express");
 const cors = require("cors");
+const authRoutes = require("./routes/auth.routes");
+const rbacRoutes = require("./routes/rbac.routes");
 
 const app = express();
 
@@ -10,7 +12,7 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-const rbacRoutes = require("./routes/rbac.routes");
+app.use("/auth", authRoutes);
 app.use("/rbac", rbacRoutes);
 
 module.exports = { app };
