@@ -6,6 +6,7 @@
 //   PM_Items[]       => DTOChildrenMenuProps (CM_*)
 
 const { sequelize } = require("../config/db");
+// const { getEffectivePermissionCodesByUserAndRole } = require("./rbac.read.service");
 
 function nowISO() {
   return new Date().toISOString();
@@ -208,11 +209,10 @@ async function getRoleCode(roleId) {
   return rows?.[0]?.R_Code || "";
 }
 
-async function getEffectivePermissionCodes({ userId, roleId }) {
-  // Role permissions (join rmp -> rmpi -> permissions)
+async function getEffectivePermissionCodesByUserAndRole({ userId, roleId }) {
   const [rolePermRows] = await sequelize.query(
     `
-    SELECT p."P_Code"
+    SELECT DISTINCT p."P_Code"
     FROM role_menu_permissions rmp
     JOIN role_menu_permission_items rmpi ON rmpi."RMP_Id" = rmp."RMP_Id"
     JOIN permissions p ON p."P_Id" = rmpi."P_Id"
@@ -221,10 +221,9 @@ async function getEffectivePermissionCodes({ userId, roleId }) {
     { replacements: { roleId } },
   );
 
-  // User override permissions (join ump -> umpi -> permissions)
   const [userPermRows] = await sequelize.query(
     `
-    SELECT p."P_Code"
+    SELECT DISTINCT p."P_Code"
     FROM user_menu_permissions ump
     JOIN user_menu_permission_items umpi ON umpi."UMP_Id" = ump."UMP_Id"
     JOIN permissions p ON p."P_Id" = umpi."P_Id"
@@ -236,8 +235,22 @@ async function getEffectivePermissionCodes({ userId, roleId }) {
   const roleCodes = (rolePermRows || []).map((r) => r.P_Code);
   const userCodes = (userPermRows || []).map((r) => r.P_Code);
 
-  // Effective = union (role + user override add-on)
-  return uniq([...roleCodes, ...userCodes]);
+  const effective = uniq([...roleCodes, ...userCodes]);
+
+  return {
+    granted: uniq(roleCodes),
+    userExtra: uniq(userCodes),
+    effective,
+  };
+}
+
+async function getEffectivePermissionCodes({ userId, roleId }) {
+  const { effective } = await getEffectivePermissionCodesByUserAndRole({
+    userId,
+    roleId,
+  });
+
+  return effective;
 }
 
 async function getActiveMenus() {

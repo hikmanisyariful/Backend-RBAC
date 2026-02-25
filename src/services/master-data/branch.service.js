@@ -72,6 +72,7 @@ const FILTER_MAP = {
   iderp: { col: `b."BR_IdERP"`, type: "number" },
 
   // business unit
+  businessunitid: { col: `bu."BU_Id"`, type: "number" },
   businessunitcode: { col: `bu."BU_Code"`, type: "text" },
   businessunitname: { col: `bu."BU_Name"`, type: "text" },
 };
@@ -225,7 +226,7 @@ function mapBranchRow(r) {
     BusinessUnitId: String(r.BusinessUnitId),
     BusinessUnitName: r.BusinessUnitName,
     BusinessUnitCode: r.BusinessUnitCode,
-    IdERP: r.IdERP,
+    BranchIdErp: r.IdERP,
     DocPrefix: r.DocPrefix,
   };
 }
@@ -480,7 +481,12 @@ module.exports = {
     if (activeRaw != null && activeParsed === null)
       throw badReq("Active must be boolean");
 
-    const idErpRaw = pick(payload, ["IdERP", "idERP", "BR_IdERP"]);
+    const idErpRaw = pick(payload, [
+      "IdERP",
+      "idERP",
+      "BR_IdERP",
+      "BranchIdErp",
+    ]);
     const idErp = idErpRaw == null ? null : toNumOrNull(idErpRaw);
     if (idErpRaw != null && idErp === null)
       throw badReq("IdERP must be number");
@@ -531,7 +537,12 @@ module.exports = {
     const codeRaw = pick(payload, ["Code", "code", "BR_Code", "branchCode"]);
     const nameRaw = pick(payload, ["Name", "name", "BR_Name", "branchName"]);
     const activeRaw = pick(payload, ["Active", "active", "BR_Active"]);
-    const idErpRaw = pick(payload, ["IdERP", "idERP", "BR_IdERP"]);
+    const idErpRaw = pick(payload, [
+      "IdERP",
+      "idERP",
+      "BR_IdERP",
+      "BranchIdErp",
+    ]);
     const docPrefixRaw = pick(payload, [
       "DocPrefix",
       "docPrefix",
