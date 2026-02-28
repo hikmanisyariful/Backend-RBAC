@@ -7,6 +7,8 @@ const roleRoutes = require("./routes/role.routes");
 const businessUnitsRoutes = require("./routes/master-data/business-unit.routes");
 const branchRoutes = require("./routes/master-data/branch.routes");
 const vesselRoutes = require("./routes/master-data/vessel.routes");
+const warehouseRoutes = require("./routes/master-data/warehouse.routes");
+const customerRoutes = require("./routes/master-data/customer.routes");
 
 const app = express();
 
@@ -24,6 +26,10 @@ app.use("/roles", roleRoutes);
 app.use("/business-unit", businessUnitsRoutes);
 app.use("/branches", branchRoutes);
 app.use("/vessels", vesselRoutes);
+app.use("/warehouses", warehouseRoutes);
+app.use("/customers", customerRoutes);
+app.use("/users", require("./routes/user.routes"));
+
 
 app.use(meRoutes);
 

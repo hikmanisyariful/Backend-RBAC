@@ -70,7 +70,7 @@ async function getRoleByCodeOrThrow(roleCodeInput, options = {}) {
   if (!roleCode) throw badReq("roleCode is required");
 
   const [rows] = await sequelize.query(
-    `SELECT "R_Id","R_Code" FROM roles WHERE "R_Code" = :roleCode LIMIT 1`,
+    `SELECT "R_Id","R_Code" FROM roles WHERE "R_Id" = :roleCode LIMIT 1`,
     {
       replacements: { roleCode },
       transaction: options.transaction,
