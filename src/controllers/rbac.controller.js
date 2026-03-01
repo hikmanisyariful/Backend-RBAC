@@ -56,8 +56,8 @@ module.exports = {
   /** GET /rbac/roles/:roleCode/tree */
   async getRoleTree(req, res) {
     try {
-      const { roleCode } = req.params;
-      const record = await rbacService.getRoleTree(roleCode);
+      const { roleId } = req.params;
+      const record = await rbacService.getRoleTree(roleId);
 
       return res.status(200).json({
         Meta: makeMetaSuccess("Success", null, 200),
@@ -68,11 +68,11 @@ module.exports = {
     }
   },
 
-  /** PUT /rbac/roles/:roleCode/permissions */
+  /** PUT /rbac/roles/:roleId/permissions */
   async updateRolePermissions(req, res) {
     try {
       const payload = {
-        roleCode: req.params.roleCode,
+        roleId: req.params.roleId,
         granted: req.body?.granted,
       };
 
@@ -90,8 +90,8 @@ module.exports = {
   /** GET /rbac/users/:userId/roles/:roleCode/tree */
   async getUserOverrideTree(req, res) {
     try {
-      const { userId, roleCode } = req.params;
-      const record = await rbacService.getUserOverrideTree(userId, roleCode);
+      const { userId, roleId } = req.params;
+      const record = await rbacService.getUserOverrideTree(userId, roleId);
 
       return res.status(200).json({
         Meta: makeMetaSuccess("Success", null, 200),
@@ -107,7 +107,7 @@ module.exports = {
     try {
       const payload = {
         userId: req.params.userId,
-        roleCode: req.params.roleCode,
+        roleId: req.params.roleId,
         userExtra: req.body?.userExtra,
       };
 
@@ -126,7 +126,10 @@ module.exports = {
   async getEffectiveUserPermissions(req, res) {
     try {
       const { userId, roleCode } = req.params;
-      const record = await rbacService.getEffectiveUserPermissions(userId, roleCode);
+      const record = await rbacService.getEffectiveUserPermissions(
+        userId,
+        roleCode,
+      );
 
       return res.status(200).json({
         Meta: makeMetaSuccess("Success", null, 200),

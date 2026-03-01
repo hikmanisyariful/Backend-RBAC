@@ -57,7 +57,7 @@ module.exports = {
       M_MenuType: "GROUP",
       M_Icon: "Settings",
       M_MenuLevel: 1,
-      M_OrderPosition: 2,
+      M_OrderPosition: 3,
       M_Active: true,
       M_IsSelected: false,
       M_CreatedBy: "seed",

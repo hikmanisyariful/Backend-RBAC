@@ -16,17 +16,19 @@ module.exports = {
       { type: Sequelize.QueryTypes.SELECT }
     );
 
-    if (!vessels.length) throw new Error("No vessels found. Run seed-vessels first.");
-    if (!bus.length) throw new Error("No business_units found. Run seed-business-units first.");
+    if (!vessels?.length)
+      throw new Error("No vessels found. Run seed-vessels first.");
+    if (!bus?.length)
+      throw new Error("No business_units found. Run seed-business-units first.");
 
     const rows = [];
 
+    // 2 mapping per vessel, pilih BU berdasarkan index vessel agar nyebar merata
     for (let i = 0; i < vessels.length; i++) {
       const v = vessels[i];
 
-      // 2 mapping per vessel
       for (let j = 0; j < 2; j++) {
-        const bu = bus[(i + j) % bus.length];
+        const bu = bus[(i * 2 + j) % bus.length];
 
         rows.push({
           VS_Id: v.VS_Id,
@@ -42,7 +44,16 @@ module.exports = {
     await queryInterface.bulkInsert("vessel_sap_code_mappings", rows);
   },
 
-  async down(queryInterface) {
-    await queryInterface.bulkDelete("vessel_sap_code_mappings", null, {});
+  async down(queryInterface, Sequelize) {
+    // Aman: hanya hapus data yang format SAPCode-nya dari seeder ini
+    await queryInterface.bulkDelete(
+      "vessel_sap_code_mappings",
+      {
+        VSM_SAPCode: {
+          [Sequelize.Op.like]: "SAP-%",
+        },
+      },
+      {}
+    );
   },
 };

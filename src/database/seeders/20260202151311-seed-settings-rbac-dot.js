@@ -193,15 +193,15 @@ module.exports = {
     );
     const pIdByCode = new Map(permRows.map((r) => [r.P_Code, r.P_Id]));
 
-    // ========= 4) USER u1 (optional) =========
-    const [u1Exists] = await queryInterface.sequelize.query(
-      `SELECT "U_Id" FROM users WHERE "U_Username"='u1' LIMIT 1`
+    // ========= 4) USER user1 (optional) =========
+    const [user1Exists] = await queryInterface.sequelize.query(
+      `SELECT "U_Id" FROM users WHERE "U_Username"='user1' LIMIT 1`
     );
-    if (u1Exists.length === 0) {
+    if (user1Exists.length === 0) {
       await queryInterface.bulkInsert("users", [
         {
-          U_Username: "u1",
-          U_Email: "u1@example.com",
+          U_Username: "user1",
+          U_Email: "user1@example.com",
           U_FullName: "User One",
           U_PhoneNumber: null,
           U_KeycloakId: "",
@@ -271,8 +271,8 @@ module.exports = {
     await queryInterface.bulkDelete("user_menu_permission_items", null, {});
     await queryInterface.bulkDelete("user_menu_permissions", null, {});
 
-    // delete user u1
-    await queryInterface.bulkDelete("users", { U_Username: "u1" }, {});
+    // delete user user1
+    await queryInterface.bulkDelete("users", { U_Username: "user1" }, {});
 
     // delete permissions
     await queryInterface.bulkDelete(

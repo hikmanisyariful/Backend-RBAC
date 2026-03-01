@@ -6,6 +6,7 @@
 //   PM_Items[]       => DTOChildrenMenuProps (CM_*)
 
 const { sequelize } = require("../config/db");
+const { ok, fail } = require("../utils/response");
 // const { getEffectivePermissionCodesByUserAndRole } = require("./rbac.read.service");
 
 function nowISO() {
@@ -297,6 +298,65 @@ async function buildMyMenuResponse({ userId, roleId }) {
   };
 }
 
+async function getUserProfile(userId) {
+  const id = Number(userId);
+  if (!Number.isFinite(id) || id <= 0) return fail("Invalid userId", 400);
+
+  // 1) ambil user + role
+  const [rows] = await sequelize.query(
+    `
+    SELECT
+      u."U_Id"        AS "Id",
+      u."U_Email"     AS "Email",
+      u."U_FullName"  AS "FullName",
+      u."U_Active"    AS "Active",
+      r."R_Id"        AS "RoleId",
+      r."R_Code"      AS "RoleCode",
+      r."R_Name"      AS "RoleName"
+    FROM users u
+    JOIN roles r ON r."R_Id" = u."U_RoleId"
+    WHERE u."U_Id" = :userId
+    LIMIT 1
+    `,
+    { replacements: { userId: id } },
+  );
+
+  if (!rows.length) return fail("User not found", 404);
+
+  const u = rows[0];
+  if (!u.Active) return fail("User is inactive", 403);
+
+  // 2) ambil business units dari user_org_mappings (distinct)
+  const [buRows] = await sequelize.query(
+    `
+    SELECT DISTINCT
+      bu."BU_Id"   AS "BusinessUnitId",
+      bu."BU_Code" AS "BusinessUnitCode",
+      bu."BU_Name" AS "BusinessUnitName"
+    FROM user_org_mappings uom
+    JOIN business_units bu ON bu."BU_Id" = uom.business_unit_id
+    WHERE uom.user_id = :userId
+    ORDER BY bu."BU_Name" ASC
+    `,
+    { replacements: { userId: id } },
+  );
+
+  const profile = {
+    Id: u.Id,
+    Email: u.Email,
+    FullName: u.FullName,
+    Role: {
+      RoleId: u.RoleId,
+      RoleCode: u.RoleCode,
+      RoleName: u.RoleName,
+    },
+    BusinessUnits: buRows ?? [],
+  };
+
+  return ok({ Record: profile }, "OK", 200);
+}
+
 module.exports = {
   buildMyMenuResponse,
+  getUserProfile,
 };

@@ -9,11 +9,11 @@ const RbacController = require("../controllers/rbac.controller");
  * ========================= */
 
 // GET /rbac/roles/:roleCode/tree
-router.get("/roles/:roleCode/tree", authRequired, RbacController.getRoleTree);
+router.get("/roles/:roleId/tree", authRequired, RbacController.getRoleTree);
 
-// PUT /rbac/roles/:roleCode/permissions
+// PUT /rbac/roles/:roleId/permissions
 router.put(
-  "/roles/:roleCode/permissions",
+  "/roles/:roleId/permissions",
   authRequired,
   RbacController.updateRolePermissions,
 );
@@ -22,16 +22,16 @@ router.put(
  * User Override (EXTRA_ONLY)
  * ========================= */
 
-// GET /rbac/users/:userId/roles/:roleCode/tree
+// GET /rbac/users/:userId/roles/:roleId/tree
 router.get(
-  "/users/:userId/roles/:roleCode/tree",
+  "/users/:userId/roles/:roleId/tree",
   authRequired,
   RbacController.getUserOverrideTree,
 );
 
-// PUT /rbac/users/:userId/roles/:roleCode/permission-overrides
+// PUT /rbac/users/:userId/roles/:roleId/permission-overrides
 router.put(
-  "/users/:userId/roles/:roleCode/permission-overrides",
+  "/users/:userId/roles/:roleId/permission-overrides",
   authRequired,
   RbacController.updateUserPermissionOverride,
 );

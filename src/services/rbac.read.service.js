@@ -65,20 +65,19 @@ function toPositiveIntOrThrow(v, fieldName) {
 /* =========================
  * Shared DB Readers / Validators
  * ========================= */
-async function getRoleByCodeOrThrow(roleCodeInput, options = {}) {
-  const roleCode = normalizeCode(roleCodeInput);
-  if (!roleCode) throw badReq("roleCode is required");
+async function getRoleByIdOrThrow(roleIdInput, options = {}) {
+  const roleId = toPositiveIntOrThrow(roleIdInput, "roleId");
 
   const [rows] = await sequelize.query(
-    `SELECT "R_Id","R_Code" FROM roles WHERE "R_Id" = :roleCode LIMIT 1`,
+    `SELECT "R_Id","R_Code" FROM roles WHERE "R_Id" = :roleId LIMIT 1`,
     {
-      replacements: { roleCode },
+      replacements: { roleId },
       transaction: options.transaction,
     },
   );
 
-  if (!rows.length) throw notFound(`Role not found: ${roleCode}`);
-  return rows[0]; // { R_Id, R_Code }
+  if (!rows.length) throw notFound(`Role not found: ${roleId}`);
+  return rows[0];
 }
 
 async function getUserByIdOrThrow(userIdInput, options = {}) {
@@ -101,12 +100,16 @@ async function getUserByIdOrThrow(userIdInput, options = {}) {
   return rows[0]; // { U_Id, U_RoleId }
 }
 
-function assertUserRoleMatches(userRow, roleRow, requestedRoleCode) {
+/**
+ * requestedRoleId is only used for exception details (help debug FE/route).
+ */
+function assertUserRoleMatches(userRow, roleRow, requestedRoleId) {
   if (String(userRow.U_RoleId) !== String(roleRow.R_Id)) {
-    throw badReq("roleCode does not match user's assigned role", {
+    throw badReq("roleId does not match user's assigned role", {
       userId: userRow.U_Id,
       userRoleId: userRow.U_RoleId,
-      requestedRoleCode,
+      requestedRoleId,
+      requestedRoleCode: roleRow?.R_Code,
     });
   }
 }
@@ -168,9 +171,13 @@ function groupPermissionsByMenuCode(permRows) {
 }
 
 function validatePermissionCodesOrThrow(permissionCodes, permByCode, fieldName) {
-  const invalidPermissions = (permissionCodes || []).filter((code) => !permByCode.has(code));
+  const invalidPermissions = (permissionCodes || []).filter(
+    (code) => !permByCode.has(code),
+  );
   if (invalidPermissions.length) {
-    throw badReq(`Some ${fieldName} permissions are invalid`, { invalidPermissions });
+    throw badReq(`Some ${fieldName} permissions are invalid`, {
+      invalidPermissions,
+    });
   }
 }
 
@@ -199,7 +206,9 @@ function groupPermissionIdsByActiveMenuOrThrow(permissionCodes, permByCode, menu
   }
 
   if (missingMenus.length) {
-    throw badReq("Some permission prefixes do not match active menu codes", { missingMenus });
+    throw badReq("Some permission prefixes do not match active menu codes", {
+      missingMenus,
+    });
   }
 
   return groupedByMenuCode;
@@ -289,7 +298,7 @@ module.exports = {
   toPositiveIntOrThrow,
 
   // shared readers / validators
-  getRoleByCodeOrThrow,
+  getRoleByIdOrThrow,
   getUserByIdOrThrow,
   assertUserRoleMatches,
   getActiveMenus,

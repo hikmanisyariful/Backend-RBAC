@@ -3,9 +3,9 @@
 const { sequelize } = require("../config/db");
 const {
   toStr,
-  normalizeCode,
   uniqueStringArray,
-  getRoleByCodeOrThrow,
+  toPositiveIntOrThrow,
+  getRoleByIdOrThrow,
   getUserByIdOrThrow,
   assertUserRoleMatches,
   getActiveMenus,
@@ -22,11 +22,10 @@ const {
 } = require("./rbac.read.service");
 
 /* =========================
- * GET /rbac/roles/:roleCode/tree
+ * GET /rbac/roles/:roleId/tree
  * ========================= */
-async function getRoleTree(roleCodeInput) {
-  const roleRow = await getRoleByCodeOrThrow(roleCodeInput);
-  const roleCode = String(roleRow.R_Code);
+async function getRoleTree(roleIdInput) {
+  const roleRow = await getRoleByIdOrThrow(roleIdInput);
   const roleId = roleRow.R_Id;
 
   const [menuRows, permRows, granted] = await Promise.all([
@@ -84,24 +83,20 @@ async function getRoleTree(roleCodeInput) {
   });
 
   return {
-    roleCode,
+    roleId: String(roleId),
+    roleCode: String(roleRow.R_Code),
     tree: roots.map(strip),
   };
 }
 
 /* =========================
- * PUT /rbac/roles/:roleCode/permissions
+ * PUT /rbac/roles/:roleId/permissions
  * replace-all
+ * payload: { roleId, granted: string[] }
  * ========================= */
 async function saveRolePermissions(payload) {
-  const roleCode = normalizeCode(payload?.roleCode);
+  const roleId = toPositiveIntOrThrow(payload?.roleId, "roleId");
   const granted = uniqueStringArray(payload?.granted);
-
-  if (!roleCode) {
-    const e = new Error("roleCode is required");
-    e.isBadRequest = true;
-    throw e;
-  }
 
   if (!Array.isArray(payload?.granted)) {
     const e = new Error("granted must be an array");
@@ -110,8 +105,8 @@ async function saveRolePermissions(payload) {
   }
 
   return sequelize.transaction(async (t) => {
-    const roleRow = await getRoleByCodeOrThrow(roleCode, { transaction: t });
-    const roleId = roleRow.R_Id;
+    const roleRow = await getRoleByIdOrThrow(roleId, { transaction: t });
+    const roleDbId = roleRow.R_Id;
 
     const [menuRows, permRows] = await Promise.all([
       sequelize
@@ -141,15 +136,15 @@ async function saveRolePermissions(payload) {
       `
       DELETE FROM role_menu_permission_items
       WHERE "RMP_Id" IN (
-        SELECT "RMP_Id" FROM role_menu_permissions WHERE "RoleId" = :roleId
+        SELECT "RMP_Id" FROM role_menu_permissions WHERE "RoleId" = :roleDbId
       )
       `,
-      { replacements: { roleId }, transaction: t },
+      { replacements: { roleDbId }, transaction: t },
     );
 
     await sequelize.query(
-      `DELETE FROM role_menu_permissions WHERE "RoleId" = :roleId`,
-      { replacements: { roleId }, transaction: t },
+      `DELETE FROM role_menu_permissions WHERE "RoleId" = :roleDbId`,
+      { replacements: { roleDbId }, transaction: t },
     );
 
     let totalMenusMapped = 0;
@@ -159,11 +154,11 @@ async function saveRolePermissions(payload) {
       const [insertRmpRows] = await sequelize.query(
         `
         INSERT INTO role_menu_permissions ("RoleId", "MenuId")
-        VALUES (:roleId, :menuId)
+        VALUES (:roleDbId, :menuId)
         RETURNING "RMP_Id"
         `,
         {
-          replacements: { roleId, menuId: data.menuId },
+          replacements: { roleDbId, menuId: data.menuId },
           transaction: t,
         },
       );
@@ -186,8 +181,8 @@ async function saveRolePermissions(payload) {
     return {
       message: "Role permissions saved successfully",
       data: {
-        roleCode,
-        roleId,
+        roleId: String(roleDbId),
+        roleCode: String(roleRow.R_Code),
         totalGranted: granted.length,
         totalMenusMapped,
         totalPermissionItems,
@@ -198,16 +193,16 @@ async function saveRolePermissions(payload) {
 }
 
 /* =========================
- * GET /rbac/users/:userId/roles/:roleCode/tree
+ * GET /rbac/users/:userId/roles/:roleId/tree
  * EXTRA_ONLY tree
  * ========================= */
-async function getUserOverrideTree(userIdInput, roleCodeInput) {
-  const roleRow = await getRoleByCodeOrThrow(roleCodeInput);
-  const roleCode = String(roleRow.R_Code);
+async function getUserOverrideTree(userIdInput, roleIdInput) {
+  const roleRow = await getRoleByIdOrThrow(roleIdInput);
   const roleId = roleRow.R_Id;
+  const roleCode = String(roleRow.R_Code);
 
   const userRow = await getUserByIdOrThrow(userIdInput);
-  assertUserRoleMatches(userRow, roleRow, roleCode);
+  assertUserRoleMatches(userRow, roleRow, roleId);
   const userId = Number(userRow.U_Id);
 
   const [menuRows, permRows, roleGranted, userExtra] = await Promise.all([
@@ -278,6 +273,7 @@ async function getUserOverrideTree(userIdInput, roleCodeInput) {
 
   return {
     userId: String(userId),
+    roleId: String(roleId),
     roleCode,
     overrideMode: "EXTRA_ONLY",
     tree: roots.map(strip),
@@ -285,21 +281,17 @@ async function getUserOverrideTree(userIdInput, roleCodeInput) {
 }
 
 /* =========================
- * PUT /rbac/users/:userId/roles/:roleCode/permission-overrides
+ * PUT /rbac/users/:userId/roles/:roleId/permission-overrides
  * EXTRA_ONLY replace-all
+ * payload: { userId, roleId, userExtra: string[] }
  * ========================= */
 async function saveUserPermissionOverride(payload) {
   const userIdRaw = toStr(payload?.userId);
-  const roleCode = normalizeCode(payload?.roleCode);
+  const roleId = toPositiveIntOrThrow(payload?.roleId, "roleId");
   const userExtra = uniqueStringArray(payload?.userExtra);
 
   if (!userIdRaw) {
     const e = new Error("userId is required");
-    e.isBadRequest = true;
-    throw e;
-  }
-  if (!roleCode) {
-    const e = new Error("roleCode is required");
     e.isBadRequest = true;
     throw e;
   }
@@ -310,11 +302,11 @@ async function saveUserPermissionOverride(payload) {
   }
 
   return sequelize.transaction(async (t) => {
-    const roleRow = await getRoleByCodeOrThrow(roleCode, { transaction: t });
-    const roleId = roleRow.R_Id;
+    const roleRow = await getRoleByIdOrThrow(roleId, { transaction: t });
+    const roleDbId = roleRow.R_Id;
 
     const userRow = await getUserByIdOrThrow(userIdRaw, { transaction: t });
-    assertUserRoleMatches(userRow, roleRow, roleCode);
+    assertUserRoleMatches(userRow, roleRow, roleDbId);
     const userId = Number(userRow.U_Id);
 
     const [menuRows, permRows] = await Promise.all([
@@ -342,7 +334,7 @@ async function saveUserPermissionOverride(payload) {
 
     // optional strict BE validation (recommended to match FE validation)
     const roleGranted = await getRoleGrantedPermissionCodes(
-      { roleId },
+      { roleId: roleDbId },
       { transaction: t },
     );
     const roleGrantedSet = new Set(roleGranted);
@@ -376,9 +368,9 @@ async function saveUserPermissionOverride(payload) {
       return {
         message: "User extra permissions cleared successfully",
         data: {
-          userId,
-          roleCode,
-          roleId,
+          userId: String(userId),
+          roleId: String(roleDbId),
+          roleCode: String(roleRow.R_Code),
           overrideMode: "EXTRA_ONLY",
           totalUserExtra: 0,
           totalMenusMapped: 0,
@@ -425,9 +417,9 @@ async function saveUserPermissionOverride(payload) {
     return {
       message: "User extra permissions saved successfully",
       data: {
-        userId,
-        roleCode,
-        roleId,
+        userId: String(userId),
+        roleId: String(roleDbId),
+        roleCode: String(roleRow.R_Code),
         overrideMode: "EXTRA_ONLY",
         totalUserExtra: userExtra.length,
         totalMenusMapped,
@@ -439,15 +431,15 @@ async function saveUserPermissionOverride(payload) {
 }
 
 /* =========================
- * GET /rbac/users/:userId/roles/:roleCode/effective-permissions
+ * GET /rbac/users/:userId/roles/:roleId/effective-permissions
  * ========================= */
-async function getEffectiveUserPermissions(userIdInput, roleCodeInput) {
-  const roleRow = await getRoleByCodeOrThrow(roleCodeInput);
-  const roleCode = String(roleRow.R_Code);
+async function getEffectiveUserPermissions(userIdInput, roleIdInput) {
+  const roleRow = await getRoleByIdOrThrow(roleIdInput);
   const roleId = roleRow.R_Id;
+  const roleCode = String(roleRow.R_Code);
 
   const userRow = await getUserByIdOrThrow(userIdInput);
-  assertUserRoleMatches(userRow, roleRow, roleCode);
+  assertUserRoleMatches(userRow, roleRow, roleId);
   const userId = Number(userRow.U_Id);
 
   const { granted, userExtra, effective } =
@@ -458,6 +450,7 @@ async function getEffectiveUserPermissions(userIdInput, roleCodeInput) {
 
   return {
     userId: String(userId),
+    roleId: String(roleId),
     roleCode,
     overrideMode: "EXTRA_ONLY",
     granted,
