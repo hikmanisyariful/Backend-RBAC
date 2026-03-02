@@ -23,6 +23,7 @@ app.get("/health", (req, res) => {
 app.use("/auth", authRoutes);
 app.use("/rbac", rbacRoutes);
 app.use("/roles", roleRoutes);
+app.use("/menus", require("./routes/menu.routes"));
 app.use("/business-unit", businessUnitsRoutes);
 app.use("/branches", branchRoutes);
 app.use("/vessels", vesselRoutes);
