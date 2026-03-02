@@ -92,8 +92,14 @@ module.exports = {
       throw new Error("Role seed failed: NO_ACCESS or MASTER_DATA_ONLY not found.");
     }
 
-    // ========= 3) Ensure required menus exist (master data + leafs) =========
-    const neededMenuCodes = ["MASTER_DATA", "BUSINESS_UNIT", "BRANCH", "VESSEL"];
+    // ========= 3) Ensure required menus exist (Master Data + leafs) =========
+    // UPDATED codes mengikuti menu seeder baru
+    const neededMenuCodes = [
+      "MASTER_DATA",
+      "MASTER_DATA_BUSINESS_UNIT",
+      "MASTER_DATA_STORAGE_BRANCH",
+      "MASTER_DATA_VESSEL",
+    ];
 
     const [menuRows] = await queryInterface.sequelize.query(
       `SELECT "M_Id","M_Code" FROM menus WHERE "M_Code" IN (:codes)`,
@@ -104,16 +110,37 @@ module.exports = {
     const missing = neededMenuCodes.filter((c) => !menuIdByCode.get(c));
     if (missing.length) {
       throw new Error(
-        `Missing menus: ${missing.join(", ")}. Run menu seeder (System Modules/Master Data) first.`
+        `Missing menus: ${missing.join(", ")}. Run menu seeder first (menus-permissions) before this seeder.`,
       );
     }
 
-    // ========= 4) Ensure minimal permissions exist (VIEW only) =========
-    const permList = [
-      { code: "BUSINESS_UNIT.VIEW", name: "View", desc: "View business unit" },
-      { code: "BRANCH.VIEW", name: "View", desc: "View branch" },
-      { code: "VESSEL.VIEW", name: "View", desc: "View vessel" },
+    // ========= 4) Ensure permissions exist (VIEW/VIEW_DETAIL/CREATE/UPDATE/DELETE) =========
+    // NOTE: idealnya permission sudah dibuat oleh seed-menus-permissions,
+    // tapi kita tetap "guard" biar aman.
+    const actions = [
+      { key: "VIEW", name: "View", desc: "View list/page" },
+      { key: "VIEW_DETAIL", name: "View Detail", desc: "View detail data" },
+      { key: "CREATE", name: "Create", desc: "Create data" },
+      { key: "UPDATE", name: "Update", desc: "Update data" },
+      { key: "DELETE", name: "Delete", desc: "Delete data" },
     ];
+
+    const leafMenuCodes = [
+      "MASTER_DATA_BUSINESS_UNIT",
+      "MASTER_DATA_STORAGE_BRANCH",
+      "MASTER_DATA_VESSEL",
+    ];
+
+    const permList = [];
+    for (const menuCode of leafMenuCodes) {
+      for (const a of actions) {
+        permList.push({
+          code: `${menuCode}.${a.key}`,
+          name: a.name,
+          desc: `${a.desc} for ${menuCode}`,
+        });
+      }
+    }
 
     for (const p of permList) {
       await insertPermissionIfNotExists(p);
@@ -122,20 +149,23 @@ module.exports = {
     // load permission ids
     const [permRows] = await queryInterface.sequelize.query(
       `SELECT "P_Id","P_Code" FROM permissions WHERE "P_Code" IN (:codes)`,
-      { replacements: { codes: permList.map((x) => x.code) } }
+      { replacements: { codes: permList.map((x) => x.code) } },
     );
     const pIdByCode = new Map(permRows.map((r) => [r.P_Code, r.P_Id]));
 
     // ========= 5) Grant MASTER_DATA_ONLY role to leaf menus =========
-    // Catatan: kita grant ke leaf menus, supaya UI bisa render tree Master Data dari child yang accessible.
-    const leafCodes = ["BUSINESS_UNIT", "BRANCH", "VESSEL"];
+    // UPDATED leaf codes + grants full 5 permissions per menu
     const grantMap = {
-      BUSINESS_UNIT: ["BUSINESS_UNIT.VIEW"],
-      BRANCH: ["BRANCH.VIEW"],
-      VESSEL: ["VESSEL.VIEW"],
+      MASTER_DATA_BUSINESS_UNIT: actions.map(
+        (a) => `MASTER_DATA_BUSINESS_UNIT.${a.key}`,
+      ),
+      MASTER_DATA_STORAGE_BRANCH: actions.map(
+        (a) => `MASTER_DATA_STORAGE_BRANCH.${a.key}`,
+      ),
+      MASTER_DATA_VESSEL: actions.map((a) => `MASTER_DATA_VESSEL.${a.key}`),
     };
 
-    for (const menuCode of leafCodes) {
+    for (const menuCode of leafMenuCodes) {
       const menuId = menuIdByCode.get(menuCode);
       if (!menuId) continue;
 
@@ -144,7 +174,7 @@ module.exports = {
         `SELECT "RMP_Id" FROM role_menu_permissions
          WHERE "RoleId"=:roleId AND "MenuId"=:menuId
          LIMIT 1`,
-        { replacements: { roleId: masterDataRoleId, menuId } }
+        { replacements: { roleId: masterDataRoleId, menuId } },
       );
 
       let rmpId;
@@ -164,13 +194,15 @@ module.exports = {
           `SELECT "RMP_Id" FROM role_menu_permissions
            WHERE "RoleId"=:roleId AND "MenuId"=:menuId
            LIMIT 1`,
-          { replacements: { roleId: masterDataRoleId, menuId } }
+          { replacements: { roleId: masterDataRoleId, menuId } },
         );
         rmpId = created[0].RMP_Id;
       } else {
         rmpId = rmpExist[0].RMP_Id;
         // idempotent: clear old items then reinsert
-        await queryInterface.bulkDelete("role_menu_permission_items", { RMP_Id: rmpId });
+        await queryInterface.bulkDelete("role_menu_permission_items", {
+          RMP_Id: rmpId,
+        });
       }
 
       const items = (grantMap[menuCode] || [])
@@ -219,12 +251,6 @@ module.exports = {
       U_UpdatedBy: "seed",
       U_UpdatedAt: now,
     });
-
-    // NOTE:
-    // - Kita TIDAK mengisi user_menu_permissions di seeder ini,
-    //   karena requirement kamu murni "berpengaruh pada role dan permission".
-    // - Jika nanti mau override user tertentu (misal tambah 1 menu di luar role),
-    //   baru pakai tabel user_menu_permissions + items.
   },
 
   async down(queryInterface) {
