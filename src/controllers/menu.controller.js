@@ -187,4 +187,27 @@ module.exports = {
       });
     }
   },
+
+  async lookup(req, res) {
+    try {
+      const { records } = await menuService.listMenuLookup(req.query);
+
+      return res.status(200).json({
+        Meta: makeMetaSuccess("Success", null, 200),
+        Data: { Records: records },
+      });
+    } catch (err) {
+      if (err?.isBadRequest) {
+        return res.status(400).json({
+          Meta: makeMetaError(400, err.message, err?.exception),
+          Data: { Records: [] },
+        });
+      }
+
+      return res.status(500).json({
+        Meta: makeMetaError(500, err?.message || "Internal Server Error"),
+        Data: { Records: [] },
+      });
+    }
+  },
 };

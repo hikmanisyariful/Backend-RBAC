@@ -10,6 +10,9 @@ router.get("/", authRequired, MenuController.list);
 // POST /menus
 router.post("/", authRequired, MenuController.create);
 
+// GET /menus/lookup
+router.get("/lookup", authRequired, MenuController.lookup);
+
 // GET /menus/:id
 router.get("/:id", authRequired, MenuController.detail);
 
