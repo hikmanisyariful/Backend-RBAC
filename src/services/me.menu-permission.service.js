@@ -1,7 +1,9 @@
 // src/services/me.menu-permission.service.js
 
+"use strict";
+
 const { sequelize } = require("../config/db");
-const { ok, fail } = require("../utils/response");
+const { fail } = require("../utils/response");
 
 function nowISO() {
   return new Date().toISOString();
@@ -38,11 +40,13 @@ function sortByOrderThenId(a, b) {
   return String(a.Id).localeCompare(String(b.Id));
 }
 
+function canView(permissionIndex, menuCode) {
+  const list = permissionIndex?.[menuCode] || [];
+  return list.includes(`${menuCode}.VIEW`);
+}
+
 /**
  * Map DB row (menus table) -> MenuDataApi (FE)
- * NOTE:
- * - IsSelected: kamu bisa set default false, atau isi dari logic lain kalau ada.
- * - CreatedAt/UpdatedAt: kalau tabel menus kamu belum punya kolom ts, set fallback nowISO().
  */
 function normalizeMenuDataApiRow(m) {
   return {
@@ -51,7 +55,7 @@ function normalizeMenuDataApiRow(m) {
     MenuName: String(m.M_Name || ""),
     ParentId: m.M_ParentId == null ? undefined : String(m.M_ParentId),
     Route: String(m.M_Route || ""),
-    MenuType: String(m.M_MenuType || m.M_Type || "Menu"), // fallback kalau kolom beda
+    MenuType: String(m.M_MenuType || m.M_Type || "Menu"),
     Icon: m.M_Icon ? String(m.M_Icon) : undefined,
     MenuLevel: Number(m.M_MenuLevel ?? 0),
     OrderPosition: Number(m.M_OrderPosition ?? 0),
@@ -72,7 +76,6 @@ function buildMenuTree(flatMenus) {
   const byId = new Map();
   const roots = [];
 
-  // clone to avoid mutation on original
   for (const m of flatMenus) {
     byId.set(m.Id, { ...m, Children: [] });
   }
@@ -85,13 +88,11 @@ function buildMenuTree(flatMenus) {
     }
   }
 
-  // sort recursively
   function sortNode(node) {
     if (node.Children && node.Children.length) {
       node.Children.sort(sortByOrderThenId);
       node.Children.forEach(sortNode);
     } else {
-      // normalize empty children -> undefined biar payload bersih
       delete node.Children;
     }
   }
@@ -103,9 +104,52 @@ function buildMenuTree(flatMenus) {
 }
 
 /**
+ * Filter menu tree by VIEW permission.
+ * Rules:
+ * - Node with Children: keep only visible children; keep node if children remain.
+ * - Leaf node: keep only if canView(menuCode) AND Route not empty.
+ */
+function filterMenuTreeByPermission(nodes, permissionIndex) {
+  const walk = (node) => {
+    const children = Array.isArray(node.Children) ? node.Children : [];
+
+    // Has children -> filter them first
+    if (children.length > 0) {
+      const filteredChildren = children.map(walk).filter(Boolean);
+      if (filteredChildren.length === 0) return null;
+
+      return {
+        ...node,
+        Children: filteredChildren,
+      };
+    }
+
+    // Leaf -> must have VIEW
+    if (!node.MenuCode) return null;
+    if (!canView(permissionIndex, node.MenuCode)) return null;
+
+    // Leaf should have route (remove this if you want leaf without route to show)
+    if (!node.Route || node.Route === "") return null;
+
+    return { ...node };
+  };
+
+  return (nodes || []).map(walk).filter(Boolean);
+}
+
+/**
+ * Collect visible MenuCode from filtered tree
+ */
+function collectMenuCodesFromTree(nodes, out = new Set()) {
+  for (const n of nodes || []) {
+    if (n?.MenuCode) out.add(n.MenuCode);
+    if (Array.isArray(n.Children)) collectMenuCodesFromTree(n.Children, out);
+  }
+  return out;
+}
+
+/**
  * Resolve userId + roleId
- * - roleId optional dari token
- * - kalau roleId tidak ada, ambil dari users.U_RoleId
  */
 async function getUserAndRole({ userId, roleId }) {
   const [rows] = await sequelize.query(
@@ -122,6 +166,9 @@ async function getUserAndRole({ userId, roleId }) {
   };
 }
 
+/**
+ * Effective permissions (role + user extra)
+ */
 async function getEffectivePermissionCodesByUserAndRole({ userId, roleId }) {
   const [rolePermRows] = await sequelize.query(
     `
@@ -147,7 +194,6 @@ async function getEffectivePermissionCodesByUserAndRole({ userId, roleId }) {
 
   const roleCodes = (rolePermRows || []).map((r) => r.P_Code);
   const userCodes = (userPermRows || []).map((r) => r.P_Code);
-
   const effective = uniq([...roleCodes, ...userCodes]);
 
   return {
@@ -159,10 +205,6 @@ async function getEffectivePermissionCodesByUserAndRole({ userId, roleId }) {
 
 /**
  * Ambil menu aktif.
- * Tambahkan kolom lain kalau memang ada di tabel kamu:
- * - M_MenuType, timestamps, createdBy, etc.
- *
- * NOTE: kalau tabel menus kamu belum punya M_MenuType, aman karena normalize fallback.
  */
 async function getActiveMenus() {
   const [rows] = await sequelize.query(
@@ -184,36 +226,29 @@ async function getActiveMenus() {
 /**
  * Build Permissions[] sesuai format:
  * { MenuId, MenuCode, MenuUrl, PermissionCodes[] }
- *
- * Rule rekomendasi:
- * - hanya keluarkan menu yang punya permission (permissionIndex ada)
- * - MenuUrl pakai Route dari menu (boleh empty kalau group/container)
  */
 function buildPermissionsList({ flatMenus, permissionIndex }) {
   const byCode = new Map(flatMenus.map((m) => [m.MenuCode, m]));
-
   const permissions = [];
 
   for (const [menuCode, codes] of Object.entries(permissionIndex || {})) {
     const menu = byCode.get(menuCode);
 
     permissions.push({
-      MenuId: menu ? String(menu.Id) : "", // kalau menuCode tidak ketemu di menus, fallback empty
+      MenuId: menu ? String(menu.Id) : "",
       MenuCode: menuCode,
       MenuUrl: menu ? String(menu.Route || "") : "",
       PermissionCodes: uniq(codes || []),
     });
   }
 
-  // Optional: sort biar konsisten
   permissions.sort((a, b) => a.MenuCode.localeCompare(b.MenuCode));
-
   return permissions;
 }
 
 /**
- * Public: Build Record payload for /me/menu-permission
- * Record: { Menus: MenuTreeDataApi[], Permissions: [...] }
+ * Public: Build Record payload for GET /menus/menu-permission
+ * Record: { generatedAt, Menus, Permissions }
  */
 async function buildMyMenuPermissionResponse({ userId, roleId }) {
   const id = Number(userId);
@@ -228,15 +263,21 @@ async function buildMyMenuPermissionResponse({ userId, roleId }) {
 
   const permissionIndex = buildPermissionIndex(effective);
 
-  // menus
+  // menus (flat -> tree)
   const menuRows = await getActiveMenus();
   const flatMenus = (menuRows || []).map(normalizeMenuDataApiRow);
 
-  // tree
-  const Menus = buildMenuTree(flatMenus);
+  const rawTree = buildMenuTree(flatMenus);
 
-  // permissions list
-  const Permissions = buildPermissionsList({ flatMenus, permissionIndex });
+  // ✅ filter tree by VIEW permissions
+  const Menus = filterMenuTreeByPermission(rawTree, permissionIndex);
+
+  // ✅ Permissions only for visible menus
+  const visibleCodes = collectMenuCodesFromTree(Menus);
+  const Permissions = buildPermissionsList({
+    flatMenus,
+    permissionIndex,
+  }).filter((p) => visibleCodes.has(p.MenuCode));
 
   return {
     generatedAt: nowISO(),
