@@ -32,7 +32,7 @@ async function login(body) {
     WHERE u."U_Username" = :username
     LIMIT 1
     `,
-    { replacements: { username } }
+    { replacements: { username } },
   );
 
   if (!rows.length) return fail("Invalid username or password", 401);

@@ -9,8 +9,6 @@ services:
       POSTGRES_DB: backend_rbac
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -37,7 +35,7 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-    command: sh -c "npm install && npm run dev"
+    command: ["npm", "run", "dev"]
     networks:
       - backend-network
 

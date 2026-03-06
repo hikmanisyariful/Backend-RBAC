@@ -1,6 +1,7 @@
 "use strict";
 
 const menuService = require("../services/menu.service");
+const menuPermissionService = require("../services/me.menu-permission.service");
 
 function makeMetaSuccess(message, pagination, code = 200) {
   return {
@@ -207,6 +208,34 @@ module.exports = {
       return res.status(500).json({
         Meta: makeMetaError(500, err?.message || "Internal Server Error"),
         Data: { Records: [] },
+      });
+    }
+  },
+
+  /** GET /menus/menu-permission */
+  async menuPermission(req, res) {
+    try {
+      const { userId, roleId } = req.auth;
+      const record = await menuPermissionService.buildMyMenuPermissionResponse({
+        userId,
+        roleId,
+      });
+
+      return res.status(200).json({
+        Meta: makeMetaSuccess("Success", null, 200),
+        Data: { Record: record },
+      });
+    } catch (err) {
+      if (err?.isBadRequest) {
+        return res.status(400).json({
+          Meta: makeMetaError(400, err.message, err?.exception),
+          Data: { Record: null },
+        });
+      }
+
+      return res.status(500).json({
+        Meta: makeMetaError(500, err?.message || "Internal Server Error"),
+        Data: { Record: null },
       });
     }
   },
