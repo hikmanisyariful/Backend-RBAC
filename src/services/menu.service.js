@@ -469,233 +469,361 @@ module.exports = {
    * POST /menus
    * - MenuCode auto-generate if empty (DB M_Code NOT NULL)
    * - MenuType/MenuLevel/OrderPosition auto-generate
+   * - Auto-generate CRUD permissions after menu created
    * ========================= */
   async createMenu(payload, actor = "system") {
-    // ====== helpers ======
-    function slugToCode(name) {
-      return String(name || "")
-        .trim()
-        .toUpperCase()
-        .replace(/[^A-Z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "")
-        .slice(0, 50);
-    }
-
-    async function ensureUniqueCode(baseCode) {
-      // baseCode sudah uppercase, max 50
-      let code = String(baseCode || "").slice(0, 50);
-      if (!code) throw badReq("MenuCode is required");
-
-      const sql = `SELECT 1 FROM menus WHERE "M_Code" = :code LIMIT 1`;
-
-      // coba sampai 50 percobaan (should be enough)
-      for (let i = 0; i <= 50; i++) {
-        const candidate =
-          i === 0
-            ? code
-            : (() => {
-                const suffix = `_${i}`;
-                const cut = 50 - suffix.length;
-                return `${code.slice(0, cut)}${suffix}`;
-              })();
-
-        const [rows] = await sequelize.query(sql, {
-          replacements: { code: candidate },
-        });
-
-        if (!rows?.length) return candidate;
+    return await sequelize.transaction(async (trx) => {
+      // ====== helpers ======
+      function slugToCode(name) {
+        return String(name || "")
+          .trim()
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, "_")
+          .replace(/^_+|_+$/g, "")
+          .slice(0, 50);
       }
 
-      throw conflict("MenuCode already exists");
-    }
+      async function ensureUniqueCode(baseCode) {
+        let code = String(baseCode || "").slice(0, 50);
+        if (!code) throw badReq("MenuCode is required");
 
-    // ====== basic fields ======
-    let MenuCodeFinal = normalizeOptionalCode(
-      pick(payload, ["MenuCode", "menuCode", "code", "M_Code"]),
-    );
+        const sql = `SELECT 1 FROM menus WHERE "M_Code" = :code LIMIT 1`;
 
-    const MenuName = toStr(
-      pick(payload, ["MenuName", "menuName", "name", "M_Name"]),
-    );
-    const Route = toStr(pick(payload, ["Route", "route", "M_Route"]));
-    const MenuType = toStr(
-      pick(payload, ["MenuType", "menuType", "type", "M_MenuType"]),
-    );
-    const Icon = toStr(pick(payload, ["Icon", "icon", "M_Icon"])) || "";
+        for (let i = 0; i <= 50; i++) {
+          const candidate =
+            i === 0
+              ? code
+              : (() => {
+                  const suffix = `_${i}`;
+                  const cut = 50 - suffix.length;
+                  return `${code.slice(0, cut)}${suffix}`;
+                })();
 
-    const ParentIdRaw = pick(payload, ["ParentId", "parentId", "M_ParentId"]);
-    const MenuLevelRaw = pick(payload, [
-      "MenuLevel",
-      "menuLevel",
-      "M_MenuLevel",
-    ]);
-    const OrderPositionRaw = pick(payload, [
-      "OrderPosition",
-      "orderPosition",
-      "M_OrderPosition",
-    ]);
-    const IsActiveRaw = pick(payload, [
-      "IsActive",
-      "isActive",
-      "active",
-      "M_Active",
-    ]);
+          const [rows] = await sequelize.query(sql, {
+            replacements: { code: candidate },
+            transaction: trx,
+          });
 
-    // ====== parse ParentId ======
-    const ParentId =
-      ParentIdRaw == null || ParentIdRaw === ""
-        ? null
-        : toInt(ParentIdRaw, NaN);
+          if (!rows?.length) return candidate;
+        }
 
-    if (
-      ParentIdRaw != null &&
-      ParentIdRaw !== "" &&
-      !Number.isFinite(ParentId)
-    ) {
-      throw badReq("ParentId must be number");
-    }
+        throw conflict("MenuCode already exists");
+      }
 
-    // ====== parse numbers (may be NaN) ======
-    const MenuLevel = toInt(MenuLevelRaw, NaN);
-    const OrderPosition = toInt(OrderPositionRaw, NaN);
+      async function createPermissionIfNotExists(
+        permissionCode,
+        permissionName,
+        description = "",
+      ) {
+        const checkSql = `
+        SELECT
+          "P_Id" AS "Id",
+          "P_Code" AS "PermissionCode",
+          "P_Name" AS "PermissionName",
+          "P_Description" AS "Description"
+        FROM permissions
+        WHERE "P_Code" = :permissionCode
+        LIMIT 1
+      `;
 
-    // ====== parse active ======
-    const IsActiveParsed =
-      IsActiveRaw == null ? true : toBoolOrNull(IsActiveRaw);
-    if (IsActiveRaw != null && IsActiveParsed === null) {
-      throw badReq("IsActive must be boolean");
-    }
-    const IsActive = IsActiveParsed;
+        const [existingRows] = await sequelize.query(checkSql, {
+          replacements: { permissionCode },
+          transaction: trx,
+        });
 
-    // ====== base validations ======
-    if (!MenuName) throw badReq("MenuName is required");
+        if (existingRows?.length) {
+          return existingRows[0];
+        }
 
-    // =========================
-    // AUTO-GENERATE MenuCode (because DB NOT NULL)
-    // =========================
-    if (!MenuCodeFinal) {
-      MenuCodeFinal = slugToCode(MenuName);
-    }
-    MenuCodeFinal = await ensureUniqueCode(MenuCodeFinal);
+        const insertSql = `
+        INSERT INTO permissions (
+          "P_Code",
+          "P_Name",
+          "P_Description",
+          "P_CreatedBy",
+          "P_CreatedAt",
+          "P_UpdatedBy",
+          "P_UpdatedAt"
+        )
+        VALUES (
+          :permissionCode,
+          :permissionName,
+          :description,
+          :createdBy,
+          NOW(),
+          :updatedBy,
+          NOW()
+        )
+        RETURNING
+          "P_Id" AS "Id",
+          "P_Code" AS "PermissionCode",
+          "P_Name" AS "PermissionName",
+          "P_Description" AS "Description"
+      `;
 
-    // =========================
-    // AUTO-GENERATE parent, MenuType, MenuLevel, OrderPosition
-    // =========================
-    let parent = null;
-    if (ParentId != null) {
-      parent = await this.getMenuById(ParentId);
-      if (!parent) throw badReq("ParentId not found");
-    }
+        const [insertedRows] = await sequelize.query(insertSql, {
+          replacements: {
+            permissionCode,
+            permissionName,
+            description,
+            createdBy: actor,
+            updatedBy: actor,
+          },
+          transaction: trx,
+        });
 
-    // MenuType:
-    // - root + route kosong => GROUP
-    // - selain itu default => MENU
-    let MenuTypeFinal = MenuType;
-    if (!MenuTypeFinal) {
-      if (!parent && !Route) MenuTypeFinal = "GROUP";
-      else MenuTypeFinal = "MENU";
-    }
+        return insertedRows?.[0] ?? null;
+      }
 
-    // MenuLevel:
-    // - parent => parent.MenuLevel + 1
-    // - root => 1
-    let MenuLevelFinal = MenuLevel;
-    if (!Number.isFinite(MenuLevelFinal) || MenuLevelFinal <= 0) {
-      const parentLevel = parent ? Number(parent.MenuLevel ?? 1) : 0;
-      MenuLevelFinal = parent ? parentLevel + 1 : 1;
-    }
+      function buildCrudPermissions(menuCode) {
+        const code = String(menuCode || "")
+          .trim()
+          .toUpperCase();
 
-    // OrderPosition:
-    // - kalau invalid => max sibling + 1
-    let OrderPositionFinal = OrderPosition;
-    if (!Number.isFinite(OrderPositionFinal) || OrderPositionFinal <= 0) {
-      const maxSql = `
-      SELECT COALESCE(MAX("M_OrderPosition"), 0)::int AS maxpos
-      FROM menus
-      WHERE (
-        (:pid::bigint IS NULL AND "M_ParentId" IS NULL)
-        OR ("M_ParentId" = :pid)
+        return [
+          {
+            code: `${code}.VIEW`,
+            name: "View",
+            description: "Allow user to view data",
+            action: "VIEW",
+          },
+          {
+            code: `${code}.CREATE`,
+            name: "Create",
+            description: "Allow user to create data",
+            action: "CREATE",
+          },
+          {
+            code: `${code}.UPDATE`,
+            name: "Update",
+            description: "Allow user to update data",
+            action: "UPDATE",
+          },
+          {
+            code: `${code}.DELETE`,
+            name: "Delete",
+            description: "Allow user to delete data",
+            action: "DELETE",
+          },
+        ];
+      }
+
+      // ====== basic fields ======
+      let MenuCodeFinal = normalizeOptionalCode(
+        pick(payload, ["MenuCode", "menuCode", "code", "M_Code"]),
+      );
+
+      const MenuName = toStr(
+        pick(payload, ["MenuName", "menuName", "name", "M_Name"]),
+      );
+      const Route = toStr(pick(payload, ["Route", "route", "M_Route"]));
+      const MenuType = toStr(
+        pick(payload, ["MenuType", "menuType", "type", "M_MenuType"]),
+      );
+      const Icon = toStr(pick(payload, ["Icon", "icon", "M_Icon"])) || "";
+
+      const ParentIdRaw = pick(payload, ["ParentId", "parentId", "M_ParentId"]);
+      const MenuLevelRaw = pick(payload, [
+        "MenuLevel",
+        "menuLevel",
+        "M_MenuLevel",
+      ]);
+      const OrderPositionRaw = pick(payload, [
+        "OrderPosition",
+        "orderPosition",
+        "M_OrderPosition",
+      ]);
+      const IsActiveRaw = pick(payload, [
+        "IsActive",
+        "isActive",
+        "active",
+        "M_Active",
+      ]);
+
+      // ====== parse ParentId ======
+      const ParentId =
+        ParentIdRaw == null || ParentIdRaw === ""
+          ? null
+          : toInt(ParentIdRaw, NaN);
+
+      if (
+        ParentIdRaw != null &&
+        ParentIdRaw !== "" &&
+        !Number.isFinite(ParentId)
+      ) {
+        throw badReq("ParentId must be number");
+      }
+
+      // ====== parse numbers ======
+      const MenuLevel = toInt(MenuLevelRaw, NaN);
+      const OrderPosition = toInt(OrderPositionRaw, NaN);
+
+      // ====== parse active ======
+      const IsActiveParsed =
+        IsActiveRaw == null ? true : toBoolOrNull(IsActiveRaw);
+      if (IsActiveRaw != null && IsActiveParsed === null) {
+        throw badReq("IsActive must be boolean");
+      }
+      const IsActive = IsActiveParsed;
+
+      // ====== base validations ======
+      if (!MenuName) throw badReq("MenuName is required");
+
+      // =========================
+      // AUTO-GENERATE MenuCode
+      // =========================
+      if (!MenuCodeFinal) {
+        MenuCodeFinal = slugToCode(MenuName);
+      }
+      MenuCodeFinal = await ensureUniqueCode(MenuCodeFinal);
+
+      // =========================
+      // AUTO-GENERATE parent, MenuType, MenuLevel, OrderPosition
+      // =========================
+      let parent = null;
+      if (ParentId != null) {
+        parent = await this.getMenuById(ParentId, trx);
+        if (!parent) throw badReq("ParentId not found");
+      }
+
+      let MenuTypeFinal = MenuType;
+      if (!MenuTypeFinal) {
+        if (!parent && !Route) MenuTypeFinal = "GROUP";
+        else MenuTypeFinal = "MENU";
+      }
+
+      let MenuLevelFinal = MenuLevel;
+      if (!Number.isFinite(MenuLevelFinal) || MenuLevelFinal <= 0) {
+        const parentLevel = parent ? Number(parent.MenuLevel ?? 1) : 0;
+        MenuLevelFinal = parent ? parentLevel + 1 : 1;
+      }
+
+      let OrderPositionFinal = OrderPosition;
+      if (!Number.isFinite(OrderPositionFinal) || OrderPositionFinal <= 0) {
+        const maxSql = `
+        SELECT COALESCE(MAX("M_OrderPosition"), 0)::int AS maxpos
+        FROM menus
+        WHERE (
+          (:pid::bigint IS NULL AND "M_ParentId" IS NULL)
+          OR ("M_ParentId" = :pid)
+        )
+      `;
+        const [maxRows] = await sequelize.query(maxSql, {
+          replacements: { pid: ParentId == null ? null : ParentId },
+          transaction: trx,
+        });
+        const maxPos = Number(maxRows?.[0]?.maxpos ?? 0);
+        OrderPositionFinal = maxPos + 1;
+      }
+
+      // ====== final validations ======
+      if (!MenuTypeFinal) throw badReq("MenuType is required");
+      if (MenuTypeFinal !== "GROUP" && !Route) {
+        throw badReq("Route is required (non-GROUP)");
+      }
+
+      // ====== unique check (Route) ======
+      if (Route) {
+        const routeCheckSql = `
+        SELECT 1
+        FROM menus
+        WHERE "M_Route" = :route
+        LIMIT 1
+      `;
+        const [routeRows] = await sequelize.query(routeCheckSql, {
+          replacements: { route: Route },
+          transaction: trx,
+        });
+        if (routeRows?.length) throw conflict("Route already exists");
+      }
+
+      // ====== insert menu ======
+      const insertSql = `
+      INSERT INTO menus (
+        "M_Code","M_Name","M_ParentId","M_Route","M_MenuType","M_Icon",
+        "M_MenuLevel","M_OrderPosition","M_Active","M_IsSelected",
+        "M_CreatedBy","M_CreatedAt","M_UpdatedBy","M_UpdatedAt"
       )
+      VALUES (
+        :MenuCode, :MenuName, :ParentId, :Route, :MenuType, :Icon,
+        :MenuLevel, :OrderPosition, :IsActive, false,
+        :CreatedBy, NOW(), :UpdatedBy, NOW()
+      )
+      RETURNING
+        "M_Id" AS "Id",
+        "M_Code" AS "MenuCode",
+        "M_Name" AS "MenuName",
+        "M_ParentId" AS "ParentId",
+        "M_Route" AS "Route",
+        "M_MenuType" AS "MenuType",
+        "M_Icon" AS "Icon",
+        "M_MenuLevel" AS "MenuLevel",
+        "M_OrderPosition" AS "OrderPosition",
+        "M_Active" AS "IsActive",
+        "M_IsSelected" AS "IsSelected",
+        "M_CreatedBy" AS "CreatedBy",
+        "M_CreatedAt" AS "CreatedAt",
+        "M_UpdatedBy" AS "UpdatedBy",
+        "M_UpdatedAt" AS "UpdatedAt"
     `;
-      const [maxRows] = await sequelize.query(maxSql, {
-        replacements: { pid: ParentId == null ? null : ParentId },
-      });
-      const maxPos = Number(maxRows?.[0]?.maxpos ?? 0);
-      OrderPositionFinal = maxPos + 1;
-    }
 
-    // ====== final validations ======
-    if (!MenuTypeFinal) throw badReq("MenuType is required");
-    if (MenuTypeFinal !== "GROUP" && !Route) {
-      throw badReq("Route is required (non-GROUP)");
-    }
+      let createdMenu = null;
 
-    // ====== unique check (Route) ======
-    // (MenuCode sudah kita pastikan unique di ensureUniqueCode)
-    if (Route) {
-      const routeCheckSql = `
-      SELECT 1
-      FROM menus
-      WHERE "M_Route" = :route
-      LIMIT 1
-    `;
-      const [routeRows] = await sequelize.query(routeCheckSql, {
-        replacements: { route: Route },
-      });
-      if (routeRows?.length) throw conflict("Route already exists");
-    }
+      try {
+        const [rows] = await sequelize.query(insertSql, {
+          replacements: {
+            MenuCode: MenuCodeFinal,
+            MenuName,
+            ParentId,
+            Route: Route || "",
+            MenuType: MenuTypeFinal,
+            Icon,
+            MenuLevel: MenuLevelFinal,
+            OrderPosition: OrderPositionFinal,
+            IsActive,
+            CreatedBy: actor,
+            UpdatedBy: actor,
+          },
+          transaction: trx,
+        });
 
-    // ====== insert ======
-    const insertSql = `
-    INSERT INTO menus (
-      "M_Code","M_Name","M_ParentId","M_Route","M_MenuType","M_Icon",
-      "M_MenuLevel","M_OrderPosition","M_Active","M_IsSelected",
-      "M_CreatedBy","M_CreatedAt","M_UpdatedBy","M_UpdatedAt"
-    )
-    VALUES (
-      :MenuCode, :MenuName, :ParentId, :Route, :MenuType, :Icon,
-      :MenuLevel, :OrderPosition, :IsActive, false,
-      :CreatedBy, NOW(), :UpdatedBy, NOW()
-    )
-    RETURNING
-      "M_Id" AS "Id",
-      "M_Code" AS "MenuCode",
-      "M_Name" AS "MenuName",
-      "M_ParentId" AS "ParentId",
-      "M_Route" AS "Route",
-      "M_MenuType" AS "MenuType",
-      "M_Icon" AS "Icon",
-      "M_MenuLevel" AS "MenuLevel",
-      "M_OrderPosition" AS "OrderPosition",
-      "M_Active" AS "IsActive",
-      "M_IsSelected" AS "IsSelected",
-      "M_CreatedBy" AS "CreatedBy",
-      "M_CreatedAt" AS "CreatedAt",
-      "M_UpdatedBy" AS "UpdatedBy",
-      "M_UpdatedAt" AS "UpdatedAt"
-  `;
+        createdMenu = rows?.[0] ?? null;
+      } catch (e) {
+        if (e?.original?.code === "23505") {
+          throw conflict("Menu already exists");
+        }
+        throw e;
+      }
 
-    try {
-      const [rows] = await sequelize.query(insertSql, {
-        replacements: {
-          MenuCode: MenuCodeFinal,
-          MenuName,
-          ParentId,
-          Route: Route || "",
-          MenuType: MenuTypeFinal,
-          Icon,
-          MenuLevel: MenuLevelFinal,
-          OrderPosition: OrderPositionFinal,
-          IsActive,
-          CreatedBy: actor,
-          UpdatedBy: actor,
-        },
-      });
-      return rows?.[0] ?? null;
-    } catch (e) {
-      if (e?.original?.code === "23505") throw conflict("Menu already exists");
-      throw e;
-    }
+      // =========================
+      // AUTO-GENERATE CRUD PERMISSIONS
+      // only for MENU, usually GROUP doesn't need CRUD permission
+      // =========================
+      let createdPermissions = [];
+      if (
+        createdMenu &&
+        String(createdMenu.MenuType).toUpperCase() !== "GROUP"
+      ) {
+        const permissionDefs = buildCrudPermissions(
+          createdMenu.MenuCode,
+          createdMenu.MenuName,
+        );
+
+        for (const perm of permissionDefs) {
+          const permission = await createPermissionIfNotExists(
+            perm.code,
+            perm.name,
+            perm.description,
+          );
+          if (permission) createdPermissions.push(permission);
+        }
+      }
+
+      return {
+        ...createdMenu,
+        Permissions: createdPermissions,
+      };
+    });
   },
 
   /** =========================

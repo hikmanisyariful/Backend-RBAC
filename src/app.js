@@ -9,6 +9,8 @@ const branchRoutes = require("./routes/master-data/branch.routes");
 const vesselRoutes = require("./routes/master-data/vessel.routes");
 const warehouseRoutes = require("./routes/master-data/warehouse.routes");
 const customerRoutes = require("./routes/master-data/customer.routes");
+const menuRoutes = require("./routes/menu.routes");
+const userRoutes = require("./routes/user.routes");
 
 const app = express();
 
@@ -20,16 +22,18 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-app.use("/auth", authRoutes);
-app.use("/rbac", rbacRoutes);
-app.use("/roles", roleRoutes);
-app.use("/menus", require("./routes/menu.routes"));
+app.use("/identity/Auth", authRoutes);
+app.use("/identity/Role", roleRoutes);
+app.use("/identity/RBAC", rbacRoutes);
+app.use("/identity/Menu", menuRoutes);
+app.use("/identity/User", userRoutes);
+
 app.use("/business-unit", businessUnitsRoutes);
 app.use("/branches", branchRoutes);
 app.use("/vessels", vesselRoutes);
 app.use("/warehouses", warehouseRoutes);
 app.use("/customers", customerRoutes);
-app.use("/users", require("./routes/user.routes"));
+
 
 
 app.use(meRoutes);

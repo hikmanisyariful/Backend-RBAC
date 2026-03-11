@@ -82,23 +82,21 @@ async function login(body) {
 
 async function refreshTokenSession(refreshToken) {
   if (!refreshToken || typeof refreshToken !== "string") {
-    return { status: 400, json: { message: "refreshToken query is required" } };
+    return fail("refreshToken query is required", 400);
   }
 
-  // 1) verify refresh token
   let decoded;
   try {
     decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
   } catch (err) {
-    return { status: 401, json: { message: "Invalid or expired refresh token" } };
+    return fail("Invalid or expired refresh token", 401);
   }
 
   const userId = decoded?.sub;
   if (!userId) {
-    return { status: 401, json: { message: "Invalid token payload" } };
+    return fail("Invalid token payload", 401);
   }
 
-  // 2) fetch user + role
   const [rows] = await sequelize.query(
     `
     SELECT 
@@ -109,19 +107,18 @@ async function refreshTokenSession(refreshToken) {
     WHERE u."U_Id" = :userId
     LIMIT 1
     `,
-    { replacements: { userId: Number(userId) } }
+    { replacements: { userId: Number(userId) } },
   );
 
   if (!rows.length) {
-    return { status: 401, json: { message: "User not found" } };
+    return fail("User not found", 401);
   }
 
   const user = rows[0];
   if (!user.U_Active) {
-    return { status: 403, json: { message: "User is inactive" } };
+    return fail("User is inactive", 403);
   }
 
-  // 3) issue new tokens (rotating)
   const access_token = signAccessToken({
     sub: String(user.U_Id),
     username: user.U_Username,
@@ -130,22 +127,21 @@ async function refreshTokenSession(refreshToken) {
 
   const refresh_token = signRefreshToken({ sub: String(user.U_Id) });
 
-  // 4) expires_in (seconds from now) - match FE expectation
-  const expires_in = 15 * 60; // 15 min
-  const refresh_expires_in = 7 * 24 * 60 * 60; // 7 days
+  const expires_in = 15 * 60;
+  const refresh_expires_in = 7 * 24 * 60 * 60;
 
-  return {
-    status: 200,
-    json: {
-      access_token,
-      refresh_token,
-      expires_in,
-      refresh_expires_in,
-      token_type: "Bearer",
-      role: user.RoleCode,
+  return ok(
+    {
+      Record: {
+        AccessToken: access_token,
+        RefreshToken: refresh_token,
+        Expired: String(expires_in),
+        ExpiredRefresh: String(refresh_expires_in),
+      },
     },
-  };
+    "OK",
+    200,
+  );
 }
-
 
 module.exports = { login, refreshTokenSession };

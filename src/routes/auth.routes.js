@@ -9,7 +9,11 @@ router.post("/login", async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({
-      Meta: { Code: 500, Status: false, Message: "Internal server error" },
+      Meta: {
+        Code: 500,
+        Status: false,
+        Message: err.message || "Internal Server Error",
+      },
       Data: null,
     });
   }
@@ -19,10 +23,17 @@ router.get("/refresh-token", async (req, res) => {
   try {
     const refreshToken = req.query.refreshToken;
     const result = await refreshTokenSession(refreshToken);
-    return res.status(result.status).json(result.json);
+    return res.status(result.Meta.Code).json(result);
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: "Internal server error" });
+    return res.status(500).json({
+      Meta: {
+        Code: 500,
+        Status: false,
+        Message: err.message || "Internal Server Error",
+      },
+      Data: null,
+    });
   }
 });
 

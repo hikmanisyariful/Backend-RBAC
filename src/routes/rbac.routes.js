@@ -9,11 +9,15 @@ const RbacController = require("../controllers/rbac.controller");
  * ========================= */
 
 // GET /rbac/roles/:roleCode/tree
-router.get("/roles/:roleId/tree", authRequired, RbacController.getRoleTree);
+router.get(
+  "/Role/:roleId/Permission/Tree",
+  authRequired,
+  RbacController.getRoleTree,
+);
 
 // PUT /rbac/roles/:roleId/permissions
 router.put(
-  "/roles/:roleId/permissions",
+  "/Role/:roleId/Permission",
   authRequired,
   RbacController.updateRolePermissions,
 );
@@ -24,21 +28,21 @@ router.put(
 
 // GET /rbac/users/:userId/roles/:roleId/tree
 router.get(
-  "/users/:userId/roles/:roleId/tree",
+  "/User/:userId/Role/:roleId/Permission/Tree",
   authRequired,
   RbacController.getUserOverrideTree,
 );
 
 // PUT /rbac/users/:userId/roles/:roleId/permission-overrides
 router.put(
-  "/users/:userId/roles/:roleId/permission-overrides",
+  "/User/:userId/Role/:roleId/Permission/Overide",
   authRequired,
   RbacController.updateUserPermissionOverride,
 );
 
 // GET /rbac/users/:userId/roles/:roleCode/effective-permissions
 router.get(
-  "/users/:userId/roles/:roleCode/effective-permissions",
+  "/User/:userId/Role/:roleId/Permission/Effective",
   authRequired,
   RbacController.getEffectiveUserPermissions,
 );

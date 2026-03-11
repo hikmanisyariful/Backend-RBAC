@@ -396,39 +396,138 @@ async function resolveMenuByPermissionIds(permissionIds, { transaction }) {
   return byPid;
 }
 
+// async function replaceUserOverrides(userId, permissionCodes, actorUserId, { transaction }) {
+//   // delete existing override for user
+//   const [umpRows] = await sequelize.query(
+//     `SELECT "UMP_Id" AS "Id" FROM user_menu_permissions WHERE "U_Id" = :uid`,
+//     { replacements: { uid: Number(userId) }, transaction }
+//   );
+//   const umpIds = (umpRows || []).map((x) => Number(x.Id)).filter(Number.isFinite);
+
+//   if (umpIds.length) {
+//     await sequelize.query(`DELETE FROM user_menu_permission_items WHERE "UMP_Id" IN (:umpIds)`, {
+//       replacements: { umpIds },
+//       transaction,
+//     });
+//   }
+//   await sequelize.query(`DELETE FROM user_menu_permissions WHERE "U_Id" = :uid`, {
+//     replacements: { uid: Number(userId) },
+//     transaction,
+//   });
+
+//   const codes = uniqStr(permissionCodes);
+//   if (!codes.length) return;
+
+//   // resolve P_Code -> P_Id
+//   const perms = await resolvePermissionCodesToIds(codes, { transaction });
+//   const pids = perms.map((p) => p.id);
+
+//   // resolve P_Id -> MenuId(s)
+//   const pidToMenus = await resolveMenuByPermissionIds(pids, { transaction });
+
+//   // group MenuId -> Set(P_Id)
+//   const menuToPids = new Map();
+//   for (const pid of pids) {
+//     const menus = pidToMenus.get(pid); // Set<MenuId>
+//     for (const mid of menus) {
+//       if (!menuToPids.has(mid)) menuToPids.set(mid, new Set());
+//       menuToPids.get(mid).add(pid);
+//     }
+//   }
+
+//   // insert headers & items
+//   for (const [menuId, pidSet] of menuToPids.entries()) {
+//     const headerSql = `
+//       INSERT INTO user_menu_permissions
+//         ("U_Id","MenuId","UMP_CreatedBy","UMP_CreatedAt","UMP_UpdatedBy","UMP_UpdatedAt")
+//       VALUES
+//         (:uid, :menuId, :by, NOW(), :by, NOW())
+//       RETURNING "UMP_Id" AS "Id"
+//     `;
+//     const [hdrRows] = await sequelize.query(headerSql, {
+//       replacements: {
+//         uid: Number(userId),
+//         menuId: Number(menuId),
+//         by: actorUserId ?? "system",
+//       },
+//       transaction,
+//     });
+//     const umpId = hdrRows?.[0]?.Id;
+//     if (!umpId) throw new Error("Failed to create user_menu_permissions");
+
+//     const pidArr = Array.from(pidSet.values());
+//     if (!pidArr.length) continue;
+
+//     const valuesSql = pidArr.map((_, i) => `(:umpId, :pid_${i})`).join(", ");
+//     const repl = { umpId: Number(umpId) };
+//     pidArr.forEach((pid, i) => (repl[`pid_${i}`] = Number(pid)));
+
+//     const itemsSql = `
+//       INSERT INTO user_menu_permission_items ("UMP_Id","P_Id")
+//       VALUES ${valuesSql}
+//     `;
+//     await sequelize.query(itemsSql, { replacements: repl, transaction });
+//   }
+// }
+
 async function replaceUserOverrides(userId, permissionCodes, actorUserId, { transaction }) {
   // delete existing override for user
   const [umpRows] = await sequelize.query(
     `SELECT "UMP_Id" AS "Id" FROM user_menu_permissions WHERE "U_Id" = :uid`,
     { replacements: { uid: Number(userId) }, transaction }
   );
+
   const umpIds = (umpRows || []).map((x) => Number(x.Id)).filter(Number.isFinite);
 
   if (umpIds.length) {
-    await sequelize.query(`DELETE FROM user_menu_permission_items WHERE "UMP_Id" IN (:umpIds)`, {
-      replacements: { umpIds },
-      transaction,
-    });
+    await sequelize.query(
+      `DELETE FROM user_menu_permission_items WHERE "UMP_Id" IN (:umpIds)`,
+      {
+        replacements: { umpIds },
+        transaction,
+      },
+    );
   }
-  await sequelize.query(`DELETE FROM user_menu_permissions WHERE "U_Id" = :uid`, {
-    replacements: { uid: Number(userId) },
-    transaction,
-  });
+
+  await sequelize.query(
+    `DELETE FROM user_menu_permissions WHERE "U_Id" = :uid`,
+    {
+      replacements: { uid: Number(userId) },
+      transaction,
+    },
+  );
 
   const codes = uniqStr(permissionCodes);
   if (!codes.length) return;
 
   // resolve P_Code -> P_Id
   const perms = await resolvePermissionCodesToIds(codes, { transaction });
-  const pids = perms.map((p) => p.id);
+  const pids = perms.map((p) => Number(p.id)).filter(Number.isFinite);
+
+  if (!pids.length) return;
 
   // resolve P_Id -> MenuId(s)
   const pidToMenus = await resolveMenuByPermissionIds(pids, { transaction });
 
+  // validate unmapped permissions
+  const unmapped = [];
+  for (const pid of pids) {
+    const menus = pidToMenus.get(pid);
+    if (!menus || !(menus instanceof Set) || menus.size === 0) {
+      unmapped.push(pid);
+    }
+  }
+
+  if (unmapped.length) {
+    throw badReq(
+      `PermissionId(s) not mapped to any menu: ${unmapped.join(", ")}`,
+    );
+  }
+
   // group MenuId -> Set(P_Id)
   const menuToPids = new Map();
   for (const pid of pids) {
-    const menus = pidToMenus.get(pid); // Set<MenuId>
+    const menus = pidToMenus.get(pid);
     for (const mid of menus) {
       if (!menuToPids.has(mid)) menuToPids.set(mid, new Set());
       menuToPids.get(mid).add(pid);
@@ -444,6 +543,7 @@ async function replaceUserOverrides(userId, permissionCodes, actorUserId, { tran
         (:uid, :menuId, :by, NOW(), :by, NOW())
       RETURNING "UMP_Id" AS "Id"
     `;
+
     const [hdrRows] = await sequelize.query(headerSql, {
       replacements: {
         uid: Number(userId),
@@ -452,6 +552,7 @@ async function replaceUserOverrides(userId, permissionCodes, actorUserId, { tran
       },
       transaction,
     });
+
     const umpId = hdrRows?.[0]?.Id;
     if (!umpId) throw new Error("Failed to create user_menu_permissions");
 
@@ -460,12 +561,16 @@ async function replaceUserOverrides(userId, permissionCodes, actorUserId, { tran
 
     const valuesSql = pidArr.map((_, i) => `(:umpId, :pid_${i})`).join(", ");
     const repl = { umpId: Number(umpId) };
-    pidArr.forEach((pid, i) => (repl[`pid_${i}`] = Number(pid)));
+
+    pidArr.forEach((pid, i) => {
+      repl[`pid_${i}`] = Number(pid);
+    });
 
     const itemsSql = `
       INSERT INTO user_menu_permission_items ("UMP_Id","P_Id")
       VALUES ${valuesSql}
     `;
+
     await sequelize.query(itemsSql, { replacements: repl, transaction });
   }
 }

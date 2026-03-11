@@ -15,24 +15,33 @@ function onlyNumericId(req, res, next) {
 }
 
 // GET /menus?page=1&limit=10&searchTerm=adm&filterColumn={} &orderBy={}
-router.get("/", authRequired, MenuController.list);
+router.get("/GetPaginationDataList", authRequired, MenuController.list);
 
 // POST /menus
-router.post("/", authRequired, MenuController.create);
+router.post("/Create", authRequired, MenuController.create);
 
 // GET /menus/lookup
-router.get("/lookup", authRequired, MenuController.lookup);
+router.get("/GetList", authRequired, MenuController.lookup);
 
 // Get /menus/menu-permission
-router.get("/menu-permission", authRequired, MenuController.menuPermission);
+router.get(
+  "/GetListMenuPermission",
+  authRequired,
+  MenuController.menuPermission,
+);
 
 // GET /menus/:id
-router.get("/:id", authRequired, onlyNumericId, MenuController.detail);
+router.get("/GetById/:id", authRequired, onlyNumericId, MenuController.detail);
 
 // PUT /menus/:id
-router.put("/:id", authRequired, onlyNumericId, MenuController.update);
+router.put("/Update/:id", authRequired, onlyNumericId, MenuController.update);
 
 // DELETE /menus/:id
-router.delete("/:id", authRequired, onlyNumericId, MenuController.remove);
+router.delete(
+  "/Delete/:id",
+  authRequired,
+  onlyNumericId,
+  MenuController.remove,
+);
 
 module.exports = router;
