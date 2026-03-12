@@ -28,11 +28,13 @@ app.use("/identity/RBAC", rbacRoutes);
 app.use("/identity/Menu", menuRoutes);
 app.use("/identity/User", userRoutes);
 
-app.use("/business-unit", businessUnitsRoutes);
-app.use("/branches", branchRoutes);
-app.use("/vessels", vesselRoutes);
-app.use("/warehouses", warehouseRoutes);
-app.use("/customers", customerRoutes);
+app.use("/organization/Businessunit", businessUnitsRoutes);
+app.use("/organization/Branch", branchRoutes);
+app.use("/organization/Warehouse", warehouseRoutes);
+
+app.use("/partner/Customer", customerRoutes);
+
+app.use("/inbound/Vessel", vesselRoutes);
 
 
 

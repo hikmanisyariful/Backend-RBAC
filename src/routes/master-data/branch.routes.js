@@ -5,21 +5,23 @@ const { authRequired } = require("../../middlewares/auth.middleware");
 const BranchController = require("../../controllers/master-data/branch.controller");
 
 // GET /branches?page=1&limit=10&searchTerm=...
-router.get("/", authRequired, BranchController.list);
+router.get("/GetPaginationDataList", authRequired, BranchController.list);
 
 // GET /branches/summary
-router.get("/summary", authRequired, BranchController.summary);
-
-// GET /branches/:id
-router.get("/:id", authRequired, BranchController.detail);
+router.get("/GetSummary", authRequired, BranchController.summary);
 
 // POST /branches
-router.post("/", authRequired, BranchController.create);
+router.post("/Create", authRequired, BranchController.create);
+
+
+// GET /branches/:id
+router.get("/GetById/:id", authRequired, BranchController.detail);
+
 
 // PUT /branches/:id
-router.put("/:id", authRequired, BranchController.update);
+router.put("/Update/:id", authRequired, BranchController.update);
 
 // DELETE /branches/:id
-router.delete("/:id", authRequired, BranchController.remove);
+router.delete("/Delete/:id", authRequired, BranchController.remove);
 
 module.exports = router;

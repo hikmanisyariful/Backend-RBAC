@@ -6,22 +6,22 @@ const BusinessUnitController = require("../../controllers/master-data/business-u
 
 
 // GET /business-units?page=1&limit=10&searchTerm=bu&filterColumn=...&orderBy=...&from=...&to=...
-router.get("/", authRequired, BusinessUnitController.list);
+router.get("/GetPaginationDataList", authRequired, BusinessUnitController.list);
 
 // GET /business-unit/features
-router.get("/features", authRequired, BusinessUnitController.features);
-
-// GET /business-units/:id
-router.get("/:id", authRequired, BusinessUnitController.detail);
+router.get("/GetFeatureList", authRequired, BusinessUnitController.features);
 
 // POST /business-units
-router.post("/", authRequired, BusinessUnitController.create);
+router.post("/Create", authRequired, BusinessUnitController.create);
+
+// GET /business-units/:id
+router.get("/GetById/:id", authRequired, BusinessUnitController.detail);
 
 // PUT /business-units/:id
-router.put("/:id", authRequired, BusinessUnitController.update);
+router.put("/Update/:id", authRequired, BusinessUnitController.update);
 
 // DELETE /business-units/:id
-router.delete("/:id", authRequired, BusinessUnitController.remove);
+router.delete("/Delete/:id", authRequired, BusinessUnitController.remove);
 
 
 

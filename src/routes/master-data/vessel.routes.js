@@ -7,24 +7,36 @@ const VesselOptionsController = require("../../controllers/master-data/vessel.op
 
 
 // GET /inbound/vessels
-router.get("/", authRequired, VesselController.list);
+router.get("/GetPaginationDataList", authRequired, VesselController.list);
 
 // ✅ NEW options endpoints
-router.get("/sap-code-options", authRequired, VesselOptionsController.sapCodeOptions);
-router.get("/external-mapping-keys", authRequired, VesselOptionsController.externalMappingKeys);
-router.get("/warehouse-options", authRequired, VesselOptionsController.warehouseOptions);
-
-// GET /inbound/vessels/:id
-router.get("/:id", authRequired, VesselController.detail);
+router.get(
+  "/GetSapCodeOptionList",
+  authRequired,
+  VesselOptionsController.sapCodeOptions,
+);
+router.get(
+  "/GetExternalMappingKeyList",
+  authRequired,
+  VesselOptionsController.externalMappingKeys,
+);
+router.get(
+  "/GetWarehouseOptionList",
+  authRequired,
+  VesselOptionsController.warehouseOptions,
+);
 
 // POST /inbound/vessels
-router.post("/", authRequired, VesselController.create);
+router.post("/Create", authRequired, VesselController.create);
+
+// GET /inbound/vessels/:id
+router.get("/GetById/:id", authRequired, VesselController.detail);
 
 // PUT /inbound/vessels/:id
-router.put("/:id", authRequired, VesselController.update);
+router.put("/Update/:id", authRequired, VesselController.update);
 
 // DELETE /inbound/vessels/:id
-router.delete("/:id", authRequired, VesselController.remove);
+router.delete("/Delete/:id", authRequired, VesselController.remove);
 
 
 
